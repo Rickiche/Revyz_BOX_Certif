@@ -1,5 +1,13 @@
 <?php
+<<<<<<< Updated upstream
 require_once '../config.php';
+=======
+// config.php
+$host = "localhost";
+$db_name = "my_admin";
+$username = "root";
+$password = "";
+>>>>>>> Stashed changes
 
 // Gestion des actions
 $message = '';
