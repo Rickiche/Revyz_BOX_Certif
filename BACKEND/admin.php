@@ -74,11 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// Récupération de la liste des utilisateurs
-$sql = "SELECT * FROM utilisateurs ORDER BY id DESC";
-$stmt = $pdo->prepare($sql);
-$stmt->execute();
-$utilisateurs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Récupération de la liste des utilisateurs avec la fonction de listing (déjà dans config.php)
+$utilisateurs = listerUtilisateurs($pdo);
 
 // Récupération d'un utilisateur pour modification
 $editUser = null;
@@ -160,6 +157,18 @@ if (isset($_GET['change_password'])) {
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 <?php endif; ?>
+
+                <!-- Compteur d'utilisateurs -->
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <div class="card bg-primary text-white">
+                            <div class="card-body">
+                                <h5 class="card-title">Total utilisateurs</h5>
+                                <h2 class="mb-0"><?= count($utilisateurs) ?></h2>
+                            </div>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Users table -->
                 <div class="table-responsive">

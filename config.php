@@ -46,4 +46,12 @@ function modifierMotDePasse($pdo, $id, $nouveauMotDePasse)
         ':mot_de_passe' => password_hash($nouveauMotDePasse, PASSWORD_DEFAULT)
     ]);
 }
+
+function listerUtilisateurs($pdo)
+{
+    $sql = "SELECT * FROM utilisateurs ORDER BY id DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute();
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
 ?>
