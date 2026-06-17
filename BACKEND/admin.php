@@ -204,7 +204,11 @@ if (isset($_GET['change_password'])) {
                                         <td><?= htmlspecialchars($user['nom']) ?></td>
                                         <td><?= htmlspecialchars($user['prenom']) ?></td>
                                         <td><?= htmlspecialchars($user['pseudo']) ?></td>
-                                        <td><?= htmlspecialchars($user['id_statut']) ?></td>
+                                        <td>
+                                        <span class="badge bg-<?= $user['id_statut'] == 1 ? 'danger' : 'primary' ?>">
+                                        <?= htmlspecialchars($user['statut_nom'] ?? 'Inconnu') ?>
+                                        </span>
+                                        </td>
                                         <td>
                                             <div class="btn-group" role="group">
                                                 <a href="?edit=<?= $user['id'] ?>" class="btn btn-sm btn-warning">

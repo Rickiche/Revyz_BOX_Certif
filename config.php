@@ -47,9 +47,11 @@ function modifierMotDePasse($pdo, $id, $nouveauMotDePasse)
     ]);
 }
 
-function listerUtilisateurs($pdo)
-{
-    $sql = "SELECT * FROM utilisateurs ORDER BY id DESC";
+function listerUtilisateurs($pdo) {
+    $sql = "SELECT u.*, s.nom AS statut_nom 
+            FROM utilisateurs u
+            LEFT JOIN statuts s ON u.id_statut = s.id_statut
+            ORDER BY u.id DESC";
     $stmt = $pdo->prepare($sql);
     $stmt->execute();
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
