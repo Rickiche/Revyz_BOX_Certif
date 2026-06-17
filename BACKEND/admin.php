@@ -10,12 +10,30 @@ $password = "";
 // Gestion des actions
 $message = '';
 $messageType = '';
+$closeModal = false; // Variable pour fermer la modale
 
 // Ajout d'un utilisateur
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'add') {
         if (!empty($_POST['nom']) && !empty($_POST['prenom']) && !empty($_POST['pseudo']) && !empty($_POST['mot_de_passe'])) {
-            $id = ajouterUtilisateur($pdo, $_POST['nom'], $_POST['prenom'], $_POST['pseudo'], $_POST['mot_de_passe']);
+            // Récupérer l'id_statut ou utiliser 2 par défaut
+            $id_statut = isset($_POST['id_statut']) ? (int)$_POST['id_statut'] : 2;
+            
+            // Vérifier que le statut existe avant d'ajouter
+            $sql_check = "SELECT id_statut FROM statuts WHERE id_statut = :id_statut";
+            $stmt_check = $pdo->prepare($sql_check);
+            $stmt_check->execute([':id_statut' => $id_statut]);
+            $statutExiste = $stmt_check->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$statutExiste) {
+                // Si le statut n'existe pas, on utilise 2 (Utilisateur)
+                $id_statut = 2;
+                $message = "Statut corrigé automatiquement vers 'Utilisateur'.";
+                $messageType = "warning";
+            }
+            
+            $id = ajouterUtilisateur($pdo, $_POST['nom'], $_POST['prenom'], $_POST['pseudo'], $_POST['mot_de_passe'], $id_statut);
+            
             if ($id) {
                 $message = "Utilisateur ajouté avec succès !";
                 $messageType = "success";
@@ -32,33 +50,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     // Modification d'un utilisateur
     elseif ($_POST['action'] === 'edit') {
         if (!empty($_POST['id']) && !empty($_POST['nom']) && !empty($_POST['prenom']) && !empty($_POST['pseudo'])) {
-            $result = modifierUtilisateur($pdo, $_POST['id'], $_POST['nom'], $_POST['prenom'], $_POST['pseudo']);
+            $id_statut = isset($_POST['id_statut']) ? (int)$_POST['id_statut'] : 2;
+            
+            // Vérifier que le statut existe
+            $sql_check = "SELECT id_statut FROM statuts WHERE id_statut = :id_statut";
+            $stmt_check = $pdo->prepare($sql_check);
+            $stmt_check->execute([':id_statut' => $id_statut]);
+            $statutExiste = $stmt_check->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$statutExiste) {
+                $id_statut = 2;
+            }
+            
+            // Vérifier si un nouveau mot de passe a été saisi
+            $nouveauMotDePasse = !empty($_POST['mot_de_passe']) ? $_POST['mot_de_passe'] : null;
+            
+            $result = modifierUtilisateurComplet($pdo, $_POST['id'], $_POST['nom'], $_POST['prenom'], $_POST['pseudo'], $id_statut, $nouveauMotDePasse);
+            
             if ($result) {
                 $message = "Utilisateur modifié avec succès !";
                 $messageType = "success";
+                $closeModal = true; // Fermer la modale
             } else {
                 $message = "Erreur lors de la modification.";
                 $messageType = "danger";
             }
         } else {
             $message = "Tous les champs sont requis.";
-            $messageType = "danger";
-        }
-    }
-    
-    // Modification du mot de passe
-    elseif ($_POST['action'] === 'change_password') {
-        if (!empty($_POST['id']) && !empty($_POST['nouveau_mot_de_passe'])) {
-            $result = modifierMotDePasse($pdo, $_POST['id'], $_POST['nouveau_mot_de_passe']);
-            if ($result) {
-                $message = "Mot de passe modifié avec succès !";
-                $messageType = "success";
-            } else {
-                $message = "Erreur lors de la modification du mot de passe.";
-                $messageType = "danger";
-            }
-        } else {
-            $message = "Le nouveau mot de passe est requis.";
             $messageType = "danger";
         }
     }
@@ -105,6 +123,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // Récupération de la liste des utilisateurs avec la fonction de listing (déjà dans config.php)
 $utilisateurs = listerUtilisateurs($pdo);
 
+// Récupération de la liste des statuts
+$sql_statuts = "SELECT * FROM statuts ORDER BY id_statut";
+$stmt_statuts = $pdo->prepare($sql_statuts);
+$stmt_statuts->execute();
+$statuts = $stmt_statuts->fetchAll(PDO::FETCH_ASSOC);
+
 // Récupération d'un utilisateur pour modification
 $editUser = null;
 if (isset($_GET['edit'])) {
@@ -112,15 +136,6 @@ if (isset($_GET['edit'])) {
     $stmt = $pdo->prepare($sql);
     $stmt->execute([':id' => $_GET['edit']]);
     $editUser = $stmt->fetch(PDO::FETCH_ASSOC);
-}
-
-// Récupération d'un utilisateur pour changement de mot de passe
-$passwordUser = null;
-if (isset($_GET['change_password'])) {
-    $sql = "SELECT * FROM utilisateurs WHERE id = :id";
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute([':id' => $_GET['change_password']]);
-    $passwordUser = $stmt->fetch(PDO::FETCH_ASSOC);
 }
 ?>
 
@@ -130,6 +145,10 @@ if (isset($_GET['change_password'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Administration - Gestion des utilisateurs</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👥</text></svg>">
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -179,6 +198,48 @@ if (isset($_GET['change_password'])) {
             font-size: 0.75rem;
             border-radius: 20px;
         }
+        
+        /* Cacher la colonne ID sur les petits écrans */
+        @media (max-width: 768px) {
+            .col-id {
+                display: none;
+            }
+        }
+        
+        /* Style pour le champ mot de passe dans le formulaire de modification */
+        .password-optional {
+            font-size: 0.8rem;
+            color: #6c757d;
+            font-weight: normal;
+        }
+        
+        /* Animation pour la fermeture de la modale */
+        .modal.fade.show {
+            background: rgba(0,0,0,0.5);
+        }
+        
+        /* Style compact pour les cartes de statistiques */
+        .stat-card {
+            transition: transform 0.2s ease;
+            cursor: default;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        .stat-card .stat-icon {
+            font-size: 2rem;
+            opacity: 0.2;
+        }
+        .stat-card .stat-number {
+            font-size: 1.8rem;
+            font-weight: 600;
+            line-height: 1.2;
+        }
+        .stat-card .stat-label {
+            font-size: 0.85rem;
+            opacity: 0.9;
+            margin-bottom: 0;
+        }
     </style>
 </head>
 <body>
@@ -188,7 +249,10 @@ if (isset($_GET['change_password'])) {
             <nav class="col-md-3 col-lg-2 d-md-block bg-dark sidebar min-vh-100">
                 <div class="position-sticky pt-3">
                     <div class="text-center mb-4">
-                        <img src="https://via.placeholder.com/80x80?text=Logo" alt="Logo" class="rounded-circle mb-2">
+                        <!-- Logo avec icône -->
+                        <div style="font-size: 60px; color: white; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px;">
+                            <i class="fas fa-users-cog"></i>
+                        </div>
                         <h5 class="text-white">Administration</h5>
                         <p class="text-white-50">Gestion des utilisateurs</p>
                     </div>
@@ -234,7 +298,7 @@ if (isset($_GET['change_password'])) {
                     </div>
                 <?php endif; ?>
 
-                <!-- Compteurs d'utilisateurs -->
+                <!-- Compteurs d'utilisateurs (version compacte) -->
                 <?php 
                 $totalUsers = count($utilisateurs);
                 $adminCount = 0;
@@ -246,26 +310,47 @@ if (isset($_GET['change_password'])) {
                 ?>
                 <div class="row mb-4">
                     <div class="col-md-4">
-                        <div class="card bg-primary text-white">
-                            <div class="card-body">
-                                <h5 class="card-title"><i class="fas fa-users me-2"></i>Total utilisateurs</h5>
-                                <h2 class="mb-0"><?= $totalUsers ?></h2>
+                        <div class="card stat-card bg-primary text-white" style="border-radius: 10px;">
+                            <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h6 class="stat-label">
+                                        <i class="fas fa-users me-1"></i>Total utilisateurs
+                                    </h6>
+                                    <h3 class="stat-number"><?= $totalUsers ?></h3>
+                                </div>
+                                <div class="stat-icon">
+                                    <i class="fas fa-users"></i>
+                                </div>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-4">
-                        <div class="card bg-danger text-white">
-                            <div class="card-body">
-                                <h5 class="card-title"><i class="fas fa-user-shield me-2"></i>Administrateurs</h5>
-                                <h2 class="mb-0"><?= $adminCount ?></h2>
+                        <div class="card stat-card bg-danger text-white" style="border-radius: 10px;">
+                            <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h6 class="stat-label">
+                                        <i class="fas fa-user-shield me-1"></i>Administrateurs
+                                    </h6>
+                                    <h3 class="stat-number"><?= $adminCount ?></h3>
+                                </div>
+                                <div class="stat-icon">
+                                    <i class="fas fa-user-shield"></i>
+                                </div>
                             </div>
                         </div>
                     </div>
                     <div class="col-md-4">
-                        <div class="card bg-info text-white">
-                            <div class="card-body">
-                                <h5 class="card-title"><i class="fas fa-user me-2"></i>Utilisateurs</h5>
-                                <h2 class="mb-0"><?= $userCount ?></h2>
+                        <div class="card stat-card bg-info text-white" style="border-radius: 10px;">
+                            <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h6 class="stat-label">
+                                        <i class="fas fa-user me-1"></i>Utilisateurs
+                                    </h6>
+                                    <h3 class="stat-number"><?= $userCount ?></h3>
+                                </div>
+                                <div class="stat-icon">
+                                    <i class="fas fa-user"></i>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -276,7 +361,8 @@ if (isset($_GET['change_password'])) {
                     <table class="table table-striped table-hover">
                         <thead class="table-dark">
                             <tr>
-                                <th>ID</th>
+                                <!-- Colonne ID cachée -->
+                                <th class="col-id" style="display: none;">ID</th>
                                 <th>Nom</th>
                                 <th>Prénom</th>
                                 <th>Pseudo</th>
@@ -287,12 +373,13 @@ if (isset($_GET['change_password'])) {
                         <tbody>
                             <?php if (empty($utilisateurs)): ?>
                                 <tr>
-                                    <td colspan="6" class="text-center">Aucun utilisateur trouvé</td>
+                                    <td colspan="5" class="text-center">Aucun utilisateur trouvé</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($utilisateurs as $user): ?>
                                     <tr class="<?= $user['id_statut'] == 1 ? 'admin-row' : '' ?>">
-                                        <td><?= htmlspecialchars($user['id']) ?></td>
+                                        <!-- Colonne ID cachée -->
+                                        <td class="col-id" style="display: none;"><?= htmlspecialchars($user['id']) ?></td>
                                         <td><?= htmlspecialchars($user['nom']) ?></td>
                                         <td><?= htmlspecialchars($user['prenom']) ?></td>
                                         <td><?= htmlspecialchars($user['pseudo']) ?></td>
@@ -313,14 +400,9 @@ if (isset($_GET['change_password'])) {
                                         </td>
                                         <td>
                                             <div class="btn-group" role="group">
-                                                <!-- Bouton Modifier (toujours visible) -->
+                                                <!-- Bouton Modifier -->
                                                 <a href="?edit=<?= $user['id'] ?>" class="btn btn-sm btn-warning" title="Modifier">
                                                     <i class="fas fa-edit"></i>
-                                                </a>
-                                                
-                                                <!-- Bouton Mot de passe (toujours visible) -->
-                                                <a href="?change_password=<?= $user['id'] ?>" class="btn btn-sm btn-info" title="Changer le mot de passe">
-                                                    <i class="fas fa-key"></i>
                                                 </a>
                                                 
                                                 <!-- Bouton Supprimer : Caché pour les administrateurs (id_statut = 1) -->
@@ -401,6 +483,16 @@ if (isset($_GET['change_password'])) {
                                         <label for="mot_de_passe" class="form-label">Mot de passe *</label>
                                         <input type="password" class="form-control" id="mot_de_passe" name="mot_de_passe" required>
                                     </div>
+                                    <div class="mb-3">
+                                        <label for="id_statut" class="form-label">Statut</label>
+                                        <select class="form-select" id="id_statut" name="id_statut">
+                                            <?php foreach ($statuts as $statut): ?>
+                                                <option value="<?= $statut['id_statut'] ?>">
+                                                    <?= htmlspecialchars($statut['nom']) ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
@@ -420,86 +512,70 @@ if (isset($_GET['change_password'])) {
                                     <h5 class="modal-title">
                                         <i class="fas fa-user-edit me-2"></i>Modifier l'utilisateur
                                     </h5>
-                                    <a href="admin.php" class="btn-close"></a>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="window.location.href='admin.php'"></button>
                                 </div>
-                                <form method="POST">
+                                <form method="POST" id="editForm">
                                     <div class="modal-body">
                                         <input type="hidden" name="action" value="edit">
                                         <input type="hidden" name="id" value="<?= $editUser['id'] ?>">
+                                        
                                         <div class="mb-3">
                                             <label for="nom" class="form-label">Nom *</label>
                                             <input type="text" class="form-control" id="nom" name="nom" value="<?= htmlspecialchars($editUser['nom']) ?>" required>
                                         </div>
+                                        
                                         <div class="mb-3">
                                             <label for="prenom" class="form-label">Prénom *</label>
                                             <input type="text" class="form-control" id="prenom" name="prenom" value="<?= htmlspecialchars($editUser['prenom']) ?>" required>
                                         </div>
+                                        
                                         <div class="mb-3">
                                             <label for="pseudo" class="form-label">Pseudo *</label>
                                             <input type="text" class="form-control" id="pseudo" name="pseudo" value="<?= htmlspecialchars($editUser['pseudo']) ?>" required>
                                         </div>
+                                        
+                                        <!-- Nouveau champ : Mot de passe (optionnel) -->
+                                        <div class="mb-3">
+                                            <label for="mot_de_passe" class="form-label">
+                                                Mot de passe 
+                                                <span class="password-optional">(laisser vide pour ne pas changer)</span>
+                                            </label>
+                                            <input type="password" class="form-control" id="mot_de_passe" name="mot_de_passe" placeholder="Nouveau mot de passe (optionnel)">
+                                            <small class="text-muted">Remplissez ce champ uniquement si vous souhaitez changer le mot de passe.</small>
+                                        </div>
+                                        
+                                        <!-- Nouveau champ : Statut (liste déroulante) -->
+                                        <div class="mb-3">
+                                            <label for="id_statut" class="form-label">Statut</label>
+                                            <select class="form-select" id="id_statut" name="id_statut">
+                                                <?php foreach ($statuts as $statut): ?>
+                                                    <option value="<?= $statut['id_statut'] ?>" 
+                                                        <?= ($editUser['id_statut'] == $statut['id_statut']) ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($statut['nom']) ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
                                     </div>
                                     <div class="modal-footer">
-                                        <a href="admin.php" class="btn btn-secondary">Annuler</a>
+                                        <button type="button" class="btn btn-secondary" onclick="window.location.href='admin.php'">Annuler</button>
                                         <button type="submit" class="btn btn-warning">Modifier</button>
                                     </div>
                                 </form>
                             </div>
                         </div>
                     </div>
-                <?php endif; ?>
-
-                <!-- Change Password Modal -->
-                <?php if ($passwordUser): ?>
-                    <div class="modal fade show" id="passwordModal" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" aria-modal="true">
-                        <div class="modal-dialog">
-                            <div class="modal-content">
-                                <div class="modal-header bg-info text-white">
-                                    <h5 class="modal-title">
-                                        <i class="fas fa-key me-2"></i>Changer le mot de passe
-                                    </h5>
-                                    <a href="admin.php" class="btn-close"></a>
-                                </div>
-                                <form method="POST">
-                                    <div class="modal-body">
-                                        <input type="hidden" name="action" value="change_password">
-                                        <input type="hidden" name="id" value="<?= $passwordUser['id'] ?>">
-                                        <div class="mb-3">
-                                            <label class="form-label">Utilisateur :</label>
-                                            <input type="text" class="form-control" value="<?= htmlspecialchars($passwordUser['prenom'] . ' ' . $passwordUser['nom']) ?>" disabled>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label for="nouveau_mot_de_passe" class="form-label">Nouveau mot de passe *</label>
-                                            <input type="password" class="form-control" id="nouveau_mot_de_passe" name="nouveau_mot_de_passe" required>
-                                        </div>
-                                        <div class="mb-3">
-                                            <label for="confirm_password" class="form-label">Confirmer le mot de passe *</label>
-                                            <input type="password" class="form-control" id="confirm_password" required>
-                                            <div class="invalid-feedback">Les mots de passe ne correspondent pas</div>
-                                        </div>
-                                    </div>
-                                    <div class="modal-footer">
-                                        <a href="admin.php" class="btn btn-secondary">Annuler</a>
-                                        <button type="submit" class="btn btn-info" id="submitPassword">Changer</button>
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                    <script>
-                        document.getElementById('confirm_password').addEventListener('keyup', function() {
-                            const password = document.getElementById('nouveau_mot_de_passe').value;
-                            const confirm = this.value;
-                            const submitBtn = document.getElementById('submitPassword');
-                            if (password === confirm && password !== '') {
-                                this.classList.remove('is-invalid');
-                                submitBtn.disabled = false;
-                            } else {
-                                this.classList.add('is-invalid');
-                                submitBtn.disabled = true;
-                            }
-                        });
-                    </script>
+                    
+                    <!-- Script pour fermer la modale automatiquement après modification -->
+                    <?php if ($closeModal && $messageType === 'success'): ?>
+                        <script>
+                            // Fermer la modale après un délai
+                            setTimeout(function() {
+                                window.location.href = 'admin.php';
+                            }, 1000);
+                        </script>
+                    <?php endif; ?>
+                    
                 <?php endif; ?>
             </main>
         </div>
