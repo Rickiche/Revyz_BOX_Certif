@@ -8,6 +8,8 @@ $username = "root";
 $password = "";
 
 
+
+
 // Gestion des actions
 $message = '';
 $messageType = '';
