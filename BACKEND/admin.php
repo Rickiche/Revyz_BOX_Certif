@@ -1,13 +1,10 @@
 <?php
-<<<<<<< Updated upstream
+// admin.php
 require_once '../config.php';
-=======
-// config.php
 $host = "localhost";
-$db_name = "my_admin";
+$db_name = "revyz_box_erick";
 $username = "root";
 $password = "";
->>>>>>> Stashed changes
 
 // Gestion des actions
 $message = '';
