@@ -7,9 +7,6 @@ $db_name = "revyz_box_erick";
 $username = "root";
 $password = "";
 
-
-
-
 // Gestion des actions
 $message = '';
 $messageType = '';
@@ -66,18 +63,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
     
-    // Suppression d'un utilisateur
+    // Suppression d'un utilisateur (avec vérification admin)
     elseif ($_POST['action'] === 'delete') {
         if (!empty($_POST['id'])) {
-            $sql = "DELETE FROM utilisateurs WHERE id = :id";
-            $stmt = $pdo->prepare($sql);
-            $result = $stmt->execute([':id' => $_POST['id']]);
-            if ($result) {
-                $message = "Utilisateur supprimé avec succès !";
-                $messageType = "success";
-            } else {
-                $message = "Erreur lors de la suppression.";
+            // Vérifier si l'utilisateur à supprimer est un administrateur
+            $sql_check = "SELECT id_statut FROM utilisateurs WHERE id = :id";
+            $stmt_check = $pdo->prepare($sql_check);
+            $stmt_check->execute([':id' => $_POST['id']]);
+            $userToDelete = $stmt_check->fetch(PDO::FETCH_ASSOC);
+            
+            // Compter les administrateurs
+            $sql_count = "SELECT COUNT(*) as total FROM utilisateurs WHERE id_statut = 1";
+            $stmt_count = $pdo->prepare($sql_count);
+            $stmt_count->execute();
+            $totalAdmins = $stmt_count->fetch(PDO::FETCH_ASSOC)['total'];
+            
+            // Si c'est un admin ET qu'il n'y a qu'un seul admin
+            if ($userToDelete && $userToDelete['id_statut'] == 1 && $totalAdmins <= 1) {
+                $message = "Impossible de supprimer le dernier administrateur !";
                 $messageType = "danger";
+            } elseif ($userToDelete && $userToDelete['id_statut'] == 1) {
+                $message = "Impossible de supprimer un administrateur !";
+                $messageType = "danger";
+            } else {
+                // Sinon, on supprime
+                $sql = "DELETE FROM utilisateurs WHERE id = :id";
+                $stmt = $pdo->prepare($sql);
+                $result = $stmt->execute([':id' => $_POST['id']]);
+                if ($result) {
+                    $message = "Utilisateur supprimé avec succès !";
+                    $messageType = "success";
+                } else {
+                    $message = "Erreur lors de la suppression.";
+                    $messageType = "danger";
+                }
             }
         }
     }
@@ -113,6 +132,54 @@ if (isset($_GET['change_password'])) {
     <title>Administration - Gestion des utilisateurs</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Styles pour les badges de statut */
+        .badge-statut {
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            border-radius: 20px;
+            letter-spacing: 0.3px;
+        }
+        .badge-admin {
+            background-color: #dc3545;
+            color: white;
+        }
+        .badge-user {
+            background-color: #0d6efd;
+            color: white;
+        }
+        .badge-bloque {
+            background-color: #6c757d;
+            color: white;
+        }
+        .badge-moderateur {
+            background-color: #fd7e14;
+            color: white;
+        }
+        .badge-invite {
+            background-color: #20c997;
+            color: white;
+        }
+        
+        /* Style pour les lignes admin */
+        .admin-row {
+            background-color: #fff3f3 !important;
+            border-left: 4px solid #dc3545;
+        }
+        .admin-row:hover {
+            background-color: #ffe6e6 !important;
+        }
+        
+        /* Badge protégé */
+        .badge-protege {
+            background-color: #28a745;
+            color: white;
+            padding: 6px 12px;
+            font-size: 0.75rem;
+            border-radius: 20px;
+        }
+    </style>
 </head>
 <body>
     <div class="container-fluid">
@@ -167,13 +234,38 @@ if (isset($_GET['change_password'])) {
                     </div>
                 <?php endif; ?>
 
-                <!-- Compteur d'utilisateurs -->
-                <div class="row mb-3">
-                    <div class="col-md-3">
+                <!-- Compteurs d'utilisateurs -->
+                <?php 
+                $totalUsers = count($utilisateurs);
+                $adminCount = 0;
+                $userCount = 0;
+                foreach ($utilisateurs as $u) {
+                    if ($u['id_statut'] == 1) $adminCount++;
+                    else $userCount++;
+                }
+                ?>
+                <div class="row mb-4">
+                    <div class="col-md-4">
                         <div class="card bg-primary text-white">
                             <div class="card-body">
-                                <h5 class="card-title">Total utilisateurs</h5>
-                                <h2 class="mb-0"><?= count($utilisateurs) ?></h2>
+                                <h5 class="card-title"><i class="fas fa-users me-2"></i>Total utilisateurs</h5>
+                                <h2 class="mb-0"><?= $totalUsers ?></h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-danger text-white">
+                            <div class="card-body">
+                                <h5 class="card-title"><i class="fas fa-user-shield me-2"></i>Administrateurs</h5>
+                                <h2 class="mb-0"><?= $adminCount ?></h2>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card bg-info text-white">
+                            <div class="card-body">
+                                <h5 class="card-title"><i class="fas fa-user me-2"></i>Utilisateurs</h5>
+                                <h2 class="mb-0"><?= $userCount ?></h2>
                             </div>
                         </div>
                     </div>
@@ -195,60 +287,83 @@ if (isset($_GET['change_password'])) {
                         <tbody>
                             <?php if (empty($utilisateurs)): ?>
                                 <tr>
-                                    <td colspan="5" class="text-center">Aucun utilisateur trouvé</td>
+                                    <td colspan="6" class="text-center">Aucun utilisateur trouvé</td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($utilisateurs as $user): ?>
-                                    <tr>
+                                    <tr class="<?= $user['id_statut'] == 1 ? 'admin-row' : '' ?>">
                                         <td><?= htmlspecialchars($user['id']) ?></td>
                                         <td><?= htmlspecialchars($user['nom']) ?></td>
                                         <td><?= htmlspecialchars($user['prenom']) ?></td>
                                         <td><?= htmlspecialchars($user['pseudo']) ?></td>
                                         <td>
-                                        <span class="badge bg-<?= $user['id_statut'] == 1 ? 'danger' : 'primary' ?>">
-                                        <?= htmlspecialchars($user['statut_nom'] ?? 'Inconnu') ?>
-                                        </span>
+                                            <?php 
+                                            // Définir la classe du badge selon le statut
+                                            $badgeClass = 'badge-user';
+                                            if ($user['id_statut'] == 1) $badgeClass = 'badge-admin';
+                                            elseif ($user['id_statut'] == 0) $badgeClass = 'badge-bloque';
+                                            elseif ($user['id_statut'] == 3) $badgeClass = 'badge-moderateur';
+                                            elseif ($user['id_statut'] == 4) $badgeClass = 'badge-invite';
+                                            
+                                            $nomStatut = $user['statut_nom'] ?? 'Inconnu';
+                                            ?>
+                                            <span class="badge-statut <?= $badgeClass ?>">
+                                                <?= htmlspecialchars($nomStatut) ?>
+                                            </span>
                                         </td>
                                         <td>
                                             <div class="btn-group" role="group">
-                                                <a href="?edit=<?= $user['id'] ?>" class="btn btn-sm btn-warning">
-                                                    <i class="fas fa-edit"></i> Modifier
+                                                <!-- Bouton Modifier (toujours visible) -->
+                                                <a href="?edit=<?= $user['id'] ?>" class="btn btn-sm btn-warning" title="Modifier">
+                                                    <i class="fas fa-edit"></i>
                                                 </a>
-                                                <a href="?change_password=<?= $user['id'] ?>" class="btn btn-sm btn-info">
-                                                    <i class="fas fa-key"></i> Mot de passe
+                                                
+                                                <!-- Bouton Mot de passe (toujours visible) -->
+                                                <a href="?change_password=<?= $user['id'] ?>" class="btn btn-sm btn-info" title="Changer le mot de passe">
+                                                    <i class="fas fa-key"></i>
                                                 </a>
-                                                <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal<?= $user['id'] ?>">
-                                                    <i class="fas fa-trash"></i> Supprimer
-                                                </button>
+                                                
+                                                <!-- Bouton Supprimer : Caché pour les administrateurs (id_statut = 1) -->
+                                                <?php if ($user['id_statut'] != 1): ?>
+                                                    <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal<?= $user['id'] ?>" title="Supprimer">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <span class="badge-protege">
+                                                        <i class="fas fa-shield-alt me-1"></i> Protégé
+                                                    </span>
+                                                <?php endif; ?>
                                             </div>
 
-                                            <!-- Delete Modal -->
-                                            <div class="modal fade" id="deleteModal<?= $user['id'] ?>" tabindex="-1">
-                                                <div class="modal-dialog">
-                                                    <div class="modal-content">
-                                                        <div class="modal-header bg-danger text-white">
-                                                            <h5 class="modal-title">
-                                                                <i class="fas fa-exclamation-triangle me-2"></i>Confirmer la suppression
-                                                            </h5>
-                                                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                                        </div>
-                                                        <div class="modal-body">
-                                                            Êtes-vous sûr de vouloir supprimer l'utilisateur 
-                                                            <strong><?= htmlspecialchars($user['prenom'] . ' ' . $user['nom']) ?></strong> ?
-                                                            <br><br>
-                                                            Cette action est irréversible.
-                                                        </div>
-                                                        <div class="modal-footer">
-                                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
-                                                            <form method="POST" style="display: inline;">
-                                                                <input type="hidden" name="action" value="delete">
-                                                                <input type="hidden" name="id" value="<?= $user['id'] ?>">
-                                                                <button type="submit" class="btn btn-danger">Supprimer</button>
-                                                            </form>
+                                            <!-- Delete Modal (uniquement si l'utilisateur n'est pas admin) -->
+                                            <?php if ($user['id_statut'] != 1): ?>
+                                                <div class="modal fade" id="deleteModal<?= $user['id'] ?>" tabindex="-1">
+                                                    <div class="modal-dialog">
+                                                        <div class="modal-content">
+                                                            <div class="modal-header bg-danger text-white">
+                                                                <h5 class="modal-title">
+                                                                    <i class="fas fa-exclamation-triangle me-2"></i>Confirmer la suppression
+                                                                </h5>
+                                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                            </div>
+                                                            <div class="modal-body">
+                                                                Êtes-vous sûr de vouloir supprimer l'utilisateur 
+                                                                <strong><?= htmlspecialchars($user['prenom'] . ' ' . $user['nom']) ?></strong> ?
+                                                                <br><br>
+                                                                Cette action est irréversible.
+                                                            </div>
+                                                            <div class="modal-footer">
+                                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                                                                <form method="POST" style="display: inline;">
+                                                                    <input type="hidden" name="action" value="delete">
+                                                                    <input type="hidden" name="id" value="<?= $user['id'] ?>">
+                                                                    <button type="submit" class="btn btn-danger">Supprimer</button>
+                                                                </form>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </div>
+                                            <?php endif; ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
