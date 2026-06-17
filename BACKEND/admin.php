@@ -188,6 +188,7 @@ if (isset($_GET['change_password'])) {
                                 <th>Nom</th>
                                 <th>Prénom</th>
                                 <th>Pseudo</th>
+                                <th>Statut</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -203,6 +204,7 @@ if (isset($_GET['change_password'])) {
                                         <td><?= htmlspecialchars($user['nom']) ?></td>
                                         <td><?= htmlspecialchars($user['prenom']) ?></td>
                                         <td><?= htmlspecialchars($user['pseudo']) ?></td>
+                                        <td><?= htmlspecialchars($user['id_statut']) ?></td>
                                         <td>
                                             <div class="btn-group" role="group">
                                                 <a href="?edit=<?= $user['id'] ?>" class="btn btn-sm btn-warning">
