@@ -60,11 +60,10 @@ def ecrire_message(msg):
     """Fonction qui traite et formate un message"""
     if msg == "":
         msg = "Message vide"
-        # Exemple de traitement supplémentaire
-        msg = msg + " OK"
+
     else:
         # On peut ajouter un traitement personnalisé ici
-        msg = f"📝 {msg}"
+        msg = msg + " OK"
     return msg
 
 if __name__ == "__main__":
