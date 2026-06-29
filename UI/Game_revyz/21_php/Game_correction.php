@@ -20,10 +20,15 @@ class Game {
     
     // --- Méthodes de persistance ---
     public static function charger() {
-        if (isset($_SESSION['game'])) {
-            return unserialize($_SESSION['game']);
+        if (isset($_SESSION['game']) && is_string($_SESSION['game'])) {
+            $game = @unserialize($_SESSION['game']);
+            if ($game instanceof Game) {
+                return $game;
+            }
         }
-        return new Game();
+        $game = new Game();
+        $game->sauvegarder();
+        return $game;
     }
     
     public function sauvegarder() {
@@ -77,22 +82,17 @@ class Game {
             return ['erreur' => 'Ce n\'est pas le tour de l\'ordinateur !'];
         }
         
-        // Stratégie : laisser un multiple de 4 si possible, sinon retirer aléatoirement entre 1 et 3
         $restant = $this->total;
         if ($restant <= 3) {
-            // Si le total est 1, 2 ou 3, l'ordi en retire le maximum (pour gagner)
-            $retrait = $restant; 
+            $retrait = $restant;
         } else {
             $mod = $restant % 4;
             if ($mod == 0) {
-                // Si déjà multiple de 4, retrait aléatoire (mais on préfère 1,2,3)
                 $retrait = rand(1, 3);
             } else {
-                $retrait = $mod; // on retire le reste pour laisser un multiple de 4
+                $retrait = $mod;
             }
-            // On s'assure que le retrait ne dépasse pas 3
             if ($retrait > 3) $retrait = 3;
-            // Et qu'on ne retire pas plus que le total
             if ($retrait > $restant) $retrait = $restant;
         }
         
@@ -121,13 +121,14 @@ class Game {
 }
 
 // ============================================
-// TRAITEMENT DES ACTIONS
+// TRAITEMENT DES ACTIONS (CORRECTION ICI)
 // ============================================
 
-$game = Game::charger();
-$action = isset($_POST['action']) ? $_POST['action'] : '';
+// On utilise $_REQUEST pour capturer GET (règles) et POST (jeu)
+$action = isset($_REQUEST['action']) ? $_REQUEST['action'] : '';
 
 if ($action === 'reinitialiser') {
+    $game = Game::charger();
     $game->reinitialiser();
     $game->sauvegarder();
     header('Location: ' . $_SERVER['PHP_SELF']);
@@ -135,21 +136,18 @@ if ($action === 'reinitialiser') {
 }
 
 if ($action === 'jouer' && isset($_POST['retrait'])) {
+    $game = Game::charger();
     $retrait = (int)$_POST['retrait'];
     $resultat = $game->jouerCoupJoueur($retrait);
     if (isset($resultat['erreur'])) {
-        // On garde le message d'erreur mais on ne change pas l'état
         $game->sauvegarder();
         header('Location: ' . $_SERVER['PHP_SELF']);
         exit;
     }
-    // Si le jeu n'est pas terminé, c'est au tour de l'ordinateur
     if (!$resultat['termine']) {
-        $game->sauvegarder(); // sauvegarde avant le tour ordi
-        // On recharge le jeu pour éviter les problèmes de référence
+        $game->sauvegarder();
         $game = Game::charger();
         $resultatOrdi = $game->jouerCoupOrdinateur();
-        // On ignore les erreurs éventuelles (normalement pas)
         $game->sauvegarder();
     } else {
         $game->sauvegarder();
@@ -158,7 +156,7 @@ if ($action === 'jouer' && isset($_POST['retrait'])) {
     exit;
 }
 
-// Affichage des règles (popup)
+// Affichage des règles (popup) - maintenant bien capturé par $_REQUEST
 if ($action === 'regles') {
     header('Content-Type: text/html');
     ?>
@@ -175,18 +173,15 @@ if ($action === 'regles') {
             <div class="rules-content">
                 <h2>🎯 BUT DU JEU</h2>
                 <p>Le jeu commence avec <strong>21 points</strong>.</p>
-                
                 <h2>🔄 DÉROULEMENT</h2>
                 <ul>
                     <li>À ton tour, tu peux retirer <strong>1, 2 ou 3 points</strong>.</li>
                     <li>L'ordinateur fait de même.</li>
                     <li>Celui qui prend le <strong>DERNIER point</strong> perd la partie !</li>
                 </ul>
-                
                 <h2>💡 ASTUCE</h2>
                 <p>Pour gagner, laisse toujours un <strong>multiple de 4</strong> à ton adversaire !</p>
                 <p class="astuce">(4, 8, 12, 16 ou 20)</p>
-                
                 <h2>🎮 BONNE CHANCE !</h2>
             </div>
             <button onclick="window.close()" class="btn btn-fermer">Fermer</button>
@@ -201,8 +196,7 @@ if ($action === 'regles') {
 // AFFICHAGE (HTML)
 // ============================================
 
-// Récupération des données pour l'affichage (après rechargement)
-$game = Game::charger(); // on recharge pour être sûr
+$game = Game::charger();
 $total = $game->getTotal();
 $joueurActuel = $game->getJoueurActuel();
 $estTermine = $game->estTermine();
@@ -229,37 +223,30 @@ $boutonsDesactives = ($estTermine || $joueurActuel !== 'joueur') ? 'disabled' : 
 <body>
     <div class="container">
         <h1 class="title">🎲 JEU DU 21</h1>
-        
         <div class="points-container">
             <p class="points-label">Points restants :</p>
             <div class="points-number"><?= $total ?></div>
         </div>
-        
         <div class="progress-container">
             <div class="progress-bar" style="width: <?= 100 - $progression ?>%; background-color: <?= $couleur ?>;"></div>
         </div>
-        
         <div class="message-container">
             <p class="message"><?= nl2br($message) ?></p>
         </div>
-        
         <div class="buttons-container">
             <button onclick="jouer(1)" <?= $boutonsDesactives ?> class="btn btn-1">1</button>
             <button onclick="jouer(2)" <?= $boutonsDesactives ?> class="btn btn-2">2</button>
             <button onclick="jouer(3)" <?= $boutonsDesactives ?> class="btn btn-3">3</button>
         </div>
-        
         <div class="buttons-container" style="margin-top: 15px;">
             <button onclick="nouvellePartie()" class="btn btn-rejouer">🔄 Nouvelle partie</button>
             <button onclick="afficherRegles()" class="btn btn-regles">📖 Règles</button>
         </div>
-        
         <div class="stats-container">
             <span class="stat victoires">🏆 Victoires : <?= $victoires ?></span>
             <span class="stat defaites">💀 Défaites : <?= $defaites ?></span>
         </div>
     </div>
-    
     <script>
         function jouer(retrait) {
             const form = document.createElement('form');
@@ -277,7 +264,6 @@ $boutonsDesactives = ($estTermine || $joueurActuel !== 'joueur') ? 'disabled' : 
             document.body.appendChild(form);
             form.submit();
         }
-        
         function nouvellePartie() {
             const form = document.createElement('form');
             form.method = 'POST';
@@ -289,7 +275,6 @@ $boutonsDesactives = ($estTermine || $joueurActuel !== 'joueur') ? 'disabled' : 
             document.body.appendChild(form);
             form.submit();
         }
-        
         function afficherRegles() {
             window.open('?action=regles', 'Règles', 'width=550,height=650,scrollbars=yes');
         }
