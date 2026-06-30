@@ -10,3 +10,5 @@ Lignes 65-81 : ajout de la logique de l'ordinateur avec une stratégie gagnante 
 Toutes les actions : sauvegarde de l'état après chaque modification.
 
 js externalisés
+
+pbl de session reglées
