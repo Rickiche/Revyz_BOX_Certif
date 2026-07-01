@@ -1,0 +1,14 @@
+Principales modifications
+Ligne 94 : remplacement de $game = Game::charger(); (méthode maintenant définie).
+
+Lignes 28-36 : ajout des méthodes charger() et sauvegarder().
+
+Lignes 100-113 : correction du traitement du tour joueur et appel au tour ordinateur si nécessaire.
+
+Lignes 65-81 : ajout de la logique de l'ordinateur avec une stratégie gagnante (multiple de 4).
+
+Toutes les actions : sauvegarde de l'état après chaque modification.
+
+js externalisés
+
+pbl de session reglées

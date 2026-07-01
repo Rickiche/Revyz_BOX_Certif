@@ -1,66 +1,586 @@
 <?php
+// admin.php
+require_once '../config.php';
+
 $host = "localhost";
-$db_name = "my_admin";
+$db_name = "revyz_box_erick";
 $username = "root";
 $password = "";
 
-try {
-    $pdo = new PDO("mysql:host=$host;dbname=$db_name;charset=utf8", $username, $password);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch(PDOException $e) {
-    echo json_encode(["error" => "Connexion échouée : " . $e->getMessage()]);
-    exit;
+// Gestion des actions
+$message = '';
+$messageType = '';
+$closeModal = false; // Variable pour fermer la modale
+
+// Ajout d'un utilisateur
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    if ($_POST['action'] === 'add') {
+        if (!empty($_POST['nom']) && !empty($_POST['prenom']) && !empty($_POST['pseudo']) && !empty($_POST['mot_de_passe'])) {
+            // Récupérer l'id_statut ou utiliser 2 par défaut
+            $id_statut = isset($_POST['id_statut']) ? (int)$_POST['id_statut'] : 2;
+            
+            // Vérifier que le statut existe avant d'ajouter
+            $sql_check = "SELECT id_statut FROM statuts WHERE id_statut = :id_statut";
+            $stmt_check = $pdo->prepare($sql_check);
+            $stmt_check->execute([':id_statut' => $id_statut]);
+            $statutExiste = $stmt_check->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$statutExiste) {
+                // Si le statut n'existe pas, on utilise 2 (Utilisateur)
+                $id_statut = 2;
+                $message = "Statut corrigé automatiquement vers 'Utilisateur'.";
+                $messageType = "warning";
+            }
+            
+            $id = ajouterUtilisateur($pdo, $_POST['nom'], $_POST['prenom'], $_POST['pseudo'], $_POST['mot_de_passe'], $id_statut);
+            
+            if ($id) {
+                $message = "Utilisateur ajouté avec succès !";
+                $messageType = "success";
+            } else {
+                $message = "Erreur lors de l'ajout de l'utilisateur.";
+                $messageType = "danger";
+            }
+        } else {
+            $message = "Tous les champs sont requis.";
+            $messageType = "danger";
+        }
+    }
+    
+    // Modification d'un utilisateur
+    elseif ($_POST['action'] === 'edit') {
+        if (!empty($_POST['id']) && !empty($_POST['nom']) && !empty($_POST['prenom']) && !empty($_POST['pseudo'])) {
+            $id_statut = isset($_POST['id_statut']) ? (int)$_POST['id_statut'] : 2;
+            
+            // Vérifier que le statut existe
+            $sql_check = "SELECT id_statut FROM statuts WHERE id_statut = :id_statut";
+            $stmt_check = $pdo->prepare($sql_check);
+            $stmt_check->execute([':id_statut' => $id_statut]);
+            $statutExiste = $stmt_check->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$statutExiste) {
+                $id_statut = 2;
+            }
+            
+            // Vérifier si un nouveau mot de passe a été saisi
+            $nouveauMotDePasse = !empty($_POST['mot_de_passe']) ? $_POST['mot_de_passe'] : null;
+            
+            $result = modifierUtilisateurComplet($pdo, $_POST['id'], $_POST['nom'], $_POST['prenom'], $_POST['pseudo'], $id_statut, $nouveauMotDePasse);
+            
+            if ($result) {
+                $message = "Utilisateur modifié avec succès !";
+                $messageType = "success";
+                $closeModal = true; // Fermer la modale
+            } else {
+                $message = "Erreur lors de la modification.";
+                $messageType = "danger";
+            }
+        } else {
+            $message = "Tous les champs sont requis.";
+            $messageType = "danger";
+        }
+    }
+    
+    // Suppression d'un utilisateur (avec vérification admin)
+    elseif ($_POST['action'] === 'delete') {
+        if (!empty($_POST['id'])) {
+            // Vérifier si l'utilisateur à supprimer est un administrateur
+            $sql_check = "SELECT id_statut FROM utilisateurs WHERE id = :id";
+            $stmt_check = $pdo->prepare($sql_check);
+            $stmt_check->execute([':id' => $_POST['id']]);
+            $userToDelete = $stmt_check->fetch(PDO::FETCH_ASSOC);
+            
+            // Compter les administrateurs
+            $sql_count = "SELECT COUNT(*) as total FROM utilisateurs WHERE id_statut = 1";
+            $stmt_count = $pdo->prepare($sql_count);
+            $stmt_count->execute();
+            $totalAdmins = $stmt_count->fetch(PDO::FETCH_ASSOC)['total'];
+            
+            // Si c'est un admin ET qu'il n'y a qu'un seul admin
+            if ($userToDelete && $userToDelete['id_statut'] == 1 && $totalAdmins <= 1) {
+                $message = "Impossible de supprimer le dernier administrateur !";
+                $messageType = "danger";
+            } elseif ($userToDelete && $userToDelete['id_statut'] == 1) {
+                $message = "Impossible de supprimer un administrateur !";
+                $messageType = "danger";
+            } else {
+                // Sinon, on supprime
+                $sql = "DELETE FROM utilisateurs WHERE id = :id";
+                $stmt = $pdo->prepare($sql);
+                $result = $stmt->execute([':id' => $_POST['id']]);
+                if ($result) {
+                    $message = "Utilisateur supprimé avec succès !";
+                    $messageType = "success";
+                } else {
+                    $message = "Erreur lors de la suppression.";
+                    $messageType = "danger";
+                }
+            }
+        }
+    }
 }
 
-function ajouterUtilisateur($pdo, $nom, $prenom, $pseudo, $mot_de_passe)
-{
-    $sql = "INSERT INTO utilisateurs
-            (nom, prenom, pseudo, mot_de_passe)
-            VALUES
-            (:nom, :prenom, :pseudo, :mot_de_passe)";
+// Récupération de la liste des utilisateurs avec la fonction de listing (déjà dans config.php)
+$utilisateurs = listerUtilisateurs($pdo);
 
+// Récupération de la liste des statuts
+$sql_statuts = "SELECT * FROM statuts ORDER BY id_statut";
+$stmt_statuts = $pdo->prepare($sql_statuts);
+$stmt_statuts->execute();
+$statuts = $stmt_statuts->fetchAll(PDO::FETCH_ASSOC);
+
+// Récupération d'un utilisateur pour modification
+$editUser = null;
+if (isset($_GET['edit'])) {
+    $sql = "SELECT * FROM utilisateurs WHERE id = :id";
     $stmt = $pdo->prepare($sql);
-
-    $stmt->execute([
-        ':nom' => $nom,
-        ':prenom' => $prenom,
-        ':pseudo' => $pseudo,
-        ':mot_de_passe' => password_hash($mot_de_passe, PASSWORD_DEFAULT)
-    ]);
-
-    return $pdo->lastInsertId();
+    $stmt->execute([':id' => $_GET['edit']]);
+    $editUser = $stmt->fetch(PDO::FETCH_ASSOC);
 }
-
-function modifierUtilisateur($pdo, $id, $nom, $prenom, $pseudo)
-{
-    $sql = "UPDATE utilisateurs
-            SET nom = :nom,
-                prenom = :prenom,
-                pseudo = :pseudo
-            WHERE id = :id";
-
-    $stmt = $pdo->prepare($sql);
-
-    return $stmt->execute([
-        ':id' => $id,
-        ':nom' => $nom,
-        ':prenom' => $prenom,
-        ':pseudo' => $pseudo
-    ]);
-}
-
-function modifierMotDePasse($pdo, $id, $nouveauMotDePasse)
-{
-    $sql = "UPDATE utilisateurs
-            SET mot_de_passe = :mot_de_passe
-            WHERE id = :id";
-
-    $stmt = $pdo->prepare($sql);
-
-    return $stmt->execute([
-        ':id' => $id,
-        ':mot_de_passe' => password_hash($nouveauMotDePasse, PASSWORD_DEFAULT)
-    ]);
-}
-
 ?>
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administration - Gestion des utilisateurs</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👥</text></svg>">
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Styles pour les badges de statut */
+        .badge-statut {
+            padding: 6px 14px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            border-radius: 20px;
+            letter-spacing: 0.3px;
+        }
+        .badge-admin {
+            background-color: #dc3545;
+            color: white;
+        }
+        .badge-user {
+            background-color: #0d6efd;
+            color: white;
+        }
+        .badge-bloque {
+            background-color: #6c757d;
+            color: white;
+        }
+        .badge-moderateur {
+            background-color: #fd7e14;
+            color: white;
+        }
+        .badge-invite {
+            background-color: #20c997;
+            color: white;
+        }
+        
+        /* Style pour les lignes admin */
+        .admin-row {
+            background-color: #fff3f3 !important;
+            border-left: 4px solid #dc3545;
+        }
+        .admin-row:hover {
+            background-color: #ffe6e6 !important;
+        }
+        
+        /* Badge protégé */
+        .badge-protege {
+            background-color: #28a745;
+            color: white;
+            padding: 6px 12px;
+            font-size: 0.75rem;
+            border-radius: 20px;
+        }
+        
+        /* Cacher la colonne ID sur les petits écrans */
+        @media (max-width: 768px) {
+            .col-id {
+                display: none;
+            }
+        }
+        
+        /* Style pour le champ mot de passe dans le formulaire de modification */
+        .password-optional {
+            font-size: 0.8rem;
+            color: #6c757d;
+            font-weight: normal;
+        }
+        
+        /* Animation pour la fermeture de la modale */
+        .modal.fade.show {
+            background: rgba(0,0,0,0.5);
+        }
+        
+        /* Style compact pour les cartes de statistiques */
+        .stat-card {
+            transition: transform 0.2s ease;
+            cursor: default;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+        .stat-card .stat-icon {
+            font-size: 2rem;
+            opacity: 0.2;
+        }
+        .stat-card .stat-number {
+            font-size: 1.8rem;
+            font-weight: 600;
+            line-height: 1.2;
+        }
+        .stat-card .stat-label {
+            font-size: 0.85rem;
+            opacity: 0.9;
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <nav class="col-md-3 col-lg-2 d-md-block bg-dark sidebar min-vh-100">
+                <div class="position-sticky pt-3">
+                    <div class="text-center mb-4">
+                        <!-- Logo avec icône -->
+                        <div style="font-size: 60px; color: white; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px;">
+                            <i class="fas fa-users-cog"></i>
+                        </div>
+                        <h5 class="text-white">Administration</h5>
+                        <p class="text-white-50">Gestion des utilisateurs</p>
+                    </div>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link active text-white" href="admin.php">
+                                <i class="fas fa-users me-2"></i> Utilisateurs
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white-50" href="#">
+                                <i class="fas fa-chart-line me-2"></i> Statistiques
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-white-50" href="#">
+                                <i class="fas fa-cog me-2"></i> Paramètres
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Main content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">
+                        <i class="fas fa-users me-2"></i>Gestion des utilisateurs
+                    </h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addUserModal">
+                            <i class="fas fa-plus me-2"></i>Ajouter un utilisateur
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Alert messages -->
+                <?php if ($message): ?>
+                    <div class="alert alert-<?= $messageType ?> alert-dismissible fade show" role="alert">
+                        <i class="fas fa-<?= $messageType === 'success' ? 'check-circle' : 'exclamation-triangle' ?> me-2"></i>
+                        <?= htmlspecialchars($message) ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                <?php endif; ?>
+
+                <!-- Compteurs d'utilisateurs (version compacte) -->
+                <?php 
+                $totalUsers = count($utilisateurs);
+                $adminCount = 0;
+                $userCount = 0;
+                foreach ($utilisateurs as $u) {
+                    if ($u['id_statut'] == 1) $adminCount++;
+                    else $userCount++;
+                }
+                ?>
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="card stat-card bg-primary text-white" style="border-radius: 10px;">
+                            <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h6 class="stat-label">
+                                        <i class="fas fa-users me-1"></i>Total utilisateurs
+                                    </h6>
+                                    <h3 class="stat-number"><?= $totalUsers ?></h3>
+                                </div>
+                                <div class="stat-icon">
+                                    <i class="fas fa-users"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card stat-card bg-danger text-white" style="border-radius: 10px;">
+                            <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h6 class="stat-label">
+                                        <i class="fas fa-user-shield me-1"></i>Administrateurs
+                                    </h6>
+                                    <h3 class="stat-number"><?= $adminCount ?></h3>
+                                </div>
+                                <div class="stat-icon">
+                                    <i class="fas fa-user-shield"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card stat-card bg-info text-white" style="border-radius: 10px;">
+                            <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h6 class="stat-label">
+                                        <i class="fas fa-user me-1"></i>Utilisateurs
+                                    </h6>
+                                    <h3 class="stat-number"><?= $userCount ?></h3>
+                                </div>
+                                <div class="stat-icon">
+                                    <i class="fas fa-user"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Users table -->
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead class="table-dark">
+                            <tr>
+                                <!-- Colonne ID cachée -->
+                                <th class="col-id" style="display: none;">ID</th>
+                                <th>Nom</th>
+                                <th>Prénom</th>
+                                <th>Pseudo</th>
+                                <th>Statut</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($utilisateurs)): ?>
+                                <tr>
+                                    <td colspan="5" class="text-center">Aucun utilisateur trouvé</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($utilisateurs as $user): ?>
+                                    <tr class="<?= $user['id_statut'] == 1 ? 'admin-row' : '' ?>">
+                                        <!-- Colonne ID cachée -->
+                                        <td class="col-id" style="display: none;"><?= htmlspecialchars($user['id']) ?></td>
+                                        <td><?= htmlspecialchars($user['nom']) ?></td>
+                                        <td><?= htmlspecialchars($user['prenom']) ?></td>
+                                        <td><?= htmlspecialchars($user['pseudo']) ?></td>
+                                        <td>
+                                            <?php 
+                                            // Définir la classe du badge selon le statut
+                                            $badgeClass = 'badge-user';
+                                            if ($user['id_statut'] == 1) $badgeClass = 'badge-admin';
+                                            elseif ($user['id_statut'] == 0) $badgeClass = 'badge-bloque';
+                                            elseif ($user['id_statut'] == 3) $badgeClass = 'badge-moderateur';
+                                            elseif ($user['id_statut'] == 4) $badgeClass = 'badge-invite';
+                                            
+                                            $nomStatut = $user['statut_nom'] ?? 'Inconnu';
+                                            ?>
+                                            <span class="badge-statut <?= $badgeClass ?>">
+                                                <?= htmlspecialchars($nomStatut) ?>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="btn-group" role="group">
+                                                <!-- Bouton Modifier -->
+                                                <a href="?edit=<?= $user['id'] ?>" class="btn btn-sm btn-warning" title="Modifier">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                
+                                                <!-- Bouton Supprimer : Caché pour les administrateurs (id_statut = 1) -->
+                                                <?php if ($user['id_statut'] != 1): ?>
+                                                    <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal<?= $user['id'] ?>" title="Supprimer">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <span class="badge-protege">
+                                                        <i class="fas fa-shield-alt me-1"></i> Protégé
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+
+                                            <!-- Delete Modal (uniquement si l'utilisateur n'est pas admin) -->
+                                            <?php if ($user['id_statut'] != 1): ?>
+                                                <div class="modal fade" id="deleteModal<?= $user['id'] ?>" tabindex="-1">
+                                                    <div class="modal-dialog">
+                                                        <div class="modal-content">
+                                                            <div class="modal-header bg-danger text-white">
+                                                                <h5 class="modal-title">
+                                                                    <i class="fas fa-exclamation-triangle me-2"></i>Confirmer la suppression
+                                                                </h5>
+                                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                                            </div>
+                                                            <div class="modal-body">
+                                                                Êtes-vous sûr de vouloir supprimer l'utilisateur 
+                                                                <strong><?= htmlspecialchars($user['prenom'] . ' ' . $user['nom']) ?></strong> ?
+                                                                <br><br>
+                                                                Cette action est irréversible.
+                                                            </div>
+                                                            <div class="modal-footer">
+                                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                                                                <form method="POST" style="display: inline;">
+                                                                    <input type="hidden" name="action" value="delete">
+                                                                    <input type="hidden" name="id" value="<?= $user['id'] ?>">
+                                                                    <button type="submit" class="btn btn-danger">Supprimer</button>
+                                                                </form>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Add User Modal -->
+                <div class="modal fade" id="addUserModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header bg-primary text-white">
+                                <h5 class="modal-title">
+                                    <i class="fas fa-user-plus me-2"></i>Ajouter un utilisateur
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <form method="POST">
+                                <div class="modal-body">
+                                    <input type="hidden" name="action" value="add">
+                                    <div class="mb-3">
+                                        <label for="nom" class="form-label">Nom *</label>
+                                        <input type="text" class="form-control" id="nom" name="nom" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="prenom" class="form-label">Prénom *</label>
+                                        <input type="text" class="form-control" id="prenom" name="prenom" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="pseudo" class="form-label">Pseudo *</label>
+                                        <input type="text" class="form-control" id="pseudo" name="pseudo" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="mot_de_passe" class="form-label">Mot de passe *</label>
+                                        <input type="password" class="form-control" id="mot_de_passe" name="mot_de_passe" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="id_statut" class="form-label">Statut</label>
+                                        <select class="form-select" id="id_statut" name="id_statut">
+                                            <?php foreach ($statuts as $statut): ?>
+                                                <option value="<?= $statut['id_statut'] ?>">
+                                                    <?= htmlspecialchars($statut['nom']) ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                                    <button type="submit" class="btn btn-primary">Ajouter</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Edit User Modal -->
+                <?php if ($editUser): ?>
+                    <div class="modal fade show" id="editUserModal" tabindex="-1" style="display: block; background: rgba(0,0,0,0.5);" aria-modal="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header bg-warning">
+                                    <h5 class="modal-title">
+                                        <i class="fas fa-user-edit me-2"></i>Modifier l'utilisateur
+                                    </h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" onclick="window.location.href='admin.php'"></button>
+                                </div>
+                                <form method="POST" id="editForm">
+                                    <div class="modal-body">
+                                        <input type="hidden" name="action" value="edit">
+                                        <input type="hidden" name="id" value="<?= $editUser['id'] ?>">
+                                        
+                                        <div class="mb-3">
+                                            <label for="nom" class="form-label">Nom *</label>
+                                            <input type="text" class="form-control" id="nom" name="nom" value="<?= htmlspecialchars($editUser['nom']) ?>" required>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="prenom" class="form-label">Prénom *</label>
+                                            <input type="text" class="form-control" id="prenom" name="prenom" value="<?= htmlspecialchars($editUser['prenom']) ?>" required>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="pseudo" class="form-label">Pseudo *</label>
+                                            <input type="text" class="form-control" id="pseudo" name="pseudo" value="<?= htmlspecialchars($editUser['pseudo']) ?>" required>
+                                        </div>
+                                        
+                                        <!-- Nouveau champ : Mot de passe (optionnel) -->
+                                        <div class="mb-3">
+                                            <label for="mot_de_passe" class="form-label">
+                                                Mot de passe 
+                                                <span class="password-optional">(laisser vide pour ne pas changer)</span>
+                                            </label>
+                                            <input type="password" class="form-control" id="mot_de_passe" name="mot_de_passe" placeholder="Nouveau mot de passe (optionnel)">
+                                            <small class="text-muted">Remplissez ce champ uniquement si vous souhaitez changer le mot de passe.</small>
+                                        </div>
+                                        
+                                        <!-- Nouveau champ : Statut (liste déroulante) -->
+                                        <div class="mb-3">
+                                            <label for="id_statut" class="form-label">Statut</label>
+                                            <select class="form-select" id="id_statut" name="id_statut">
+                                                <?php foreach ($statuts as $statut): ?>
+                                                    <option value="<?= $statut['id_statut'] ?>" 
+                                                        <?= ($editUser['id_statut'] == $statut['id_statut']) ? 'selected' : '' ?>>
+                                                        <?= htmlspecialchars($statut['nom']) ?>
+                                                    </option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" onclick="window.location.href='admin.php'">Annuler</button>
+                                        <button type="submit" class="btn btn-warning">Modifier</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Script pour fermer la modale automatiquement après modification -->
+                    <?php if ($closeModal && $messageType === 'success'): ?>
+                        <script>
+                            // Fermer la modale après un délai
+                            setTimeout(function() {
+                                window.location.href = 'admin.php';
+                            }, 1000);
+                        </script>
+                    <?php endif; ?>
+                    
+                <?php endif; ?>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
